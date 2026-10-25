@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F1 Singapore GP Winner Prediction</title>
+<style>
+  :root { --red: #e10600; --dark: #15151e; --card: #1f1f2b; --text: #f0f0f0; --muted: #9a9aa5; }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+  body { background: var(--dark); color: var(--text); min-height: 100vh; padding: 40px 16px; }
+  .container { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h1 span { color: var(--red); }
+  .sub { color: var(--muted); margin-bottom: 28px; font-size: .95rem; }
+  .card { background: var(--card); border-radius: 12px; padding: 24px; margin-bottom: 20px; border: 1px solid #2d2d3d; }
+  label { display: block; margin-bottom: 8px; font-weight: 600; font-size: .95rem; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #3a3a4d;
+    background: #12121a; color: var(--text); font-size: 1rem; outline: none;
+  }
+  input:focus { border-color: var(--red); }
+  button {
+    margin-top: 14px; padding: 10px 22px; border: none; border-radius: 8px;
+    background: var(--red); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #ff1e14; }
+  button:disabled { background: #555; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .chip {
+    background: #12121a; border: 1px solid #3a3a4d; border-radius: 999px;
+    padding: 4px 12px; font-size: .85rem; cursor: pointer; user-select: none;
+  }
+  .chip:hover { border-color: var(--red); }
+  .chip.top { border-color: var(--red); color: #ffb3b0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { padding: 10px 12px; text-align: center; border-bottom: 1px solid #2d2d3d; font-size: .92rem; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; }
+  tr:first-child td { color: #ffd700; font-weight: 700; }
+  .warn { background: #3a2a12; border: 1px solid #8a6d1f; color: #ffd37a; padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: .9rem; }
+  .error { background: #3a1212; border: 1px solid #8a1f1f; color: #ff9a9a; padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: .9rem; }
+  .acc { margin-top: 16px; padding: 12px 16px; background: #12241a; border: 1px solid #1f5c38; border-radius: 8px; color: #7fe0a7; font-size: .95rem; }
+  .loading { display: flex; align-items: center; gap: 10px; color: var(--muted); margin-top: 14px; }
+  .spinner {
+    width: 18px; height: 18px; border: 3px solid #3a3a4d; border-top-color: var(--red);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🏁 F1 <span>Singapore GP</span> Winner Prediction</h1>
+  <p class="sub">ทำนายโอกาสชนะด้วย Linear Algebra (Performance Matrix + AHP Weights + Markov Safety Car)</p>
+
+  <!-- STEP 1: YEAR -->
+  <div class="card">
+    <label for="year">1) ใส่ปีที่ต้องการทราบผล (ค.ศ.) แล้วกด Enter</label>
+    <input type="number" id="year" placeholder="เช่น 2023" min="2008" max="2100">
+    <div id="yearLoading" class="loading hidden"><div class="spinner"></div><span>กำลังตรวจสอบ/ดึงข้อมูล Qualify... (ครั้งแรกอาจใช้เวลาสักครู่)</span></div>
+    <div id="yearError" class="error hidden"></div>
+  </div>
+
+  <!-- STEP 2: DRIVERS -->
+  <div class="card hidden" id="driverCard">
+    <label>2) รายชื่อนักแข่งทั้งหมดในปี <span id="yearLabel"></span> (เรียงตามอันดับ Qualify — คลิกชื่อเพื่อเพิ่ม)</label>
+    <div class="chips" id="driverChips"></div>
+    <label for="drivers">เลือกนักแข่ง {{ n_drivers }} คน (คั่นด้วยเว้นวรรคหรือจุลภาค)</label>
+    <input type="text" id="drivers" placeholder="เช่น VER LEC HAM ...">
+    <p class="hint">⭐ ค่าเริ่มต้นคือ Top {{ n_drivers }} จากรอบ Qualify — หากใส่ไม่ครบ/ซ้ำ/ไม่พบชื่อ ระบบจะใช้ Top {{ n_drivers }} แทนโดยอัตโนมัติ</p>
+    <button id="predictBtn">🔮 ทำนายผล</button>
+    <div id="predictLoading" class="loading hidden"><div class="spinner"></div><span>กำลังรัน Pipeline (Matrix P → Weights → Result) และดึงผลแข่งจริง...</span></div>
+    <div id="predictError" class="error hidden"></div>
+  </div>
+
+  <!-- STEP 3: RESULTS -->
+  <div class="card hidden" id="resultCard">
+    <label>🏆 สรุปผลการทำนายและอันดับจริง Singapore GP <span id="resultYear"></span></label>
+    <div id="warnings"></div>
+    <table>
+      <thead>
+        <tr><th>อันดับทำนาย</th><th>นักแข่ง</th><th>โอกาสชนะ (SC %)</th><th>โอกาสชนะ (No SC %)</th><th>อันดับจริง (Race)</th></tr>
+      </thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+    <div id="accBox" class="acc hidden"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentYear = null;
+
+function show(el, on = true) { el.classList.toggle('hidden', !on); }
+function setError(el, msg) { el.textContent = msg; show(el, !!msg); }
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ');
+  return data;
+}
+
+$('year').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const year = $('year').value.trim();
+  setError($('yearError'), '');
+  show($('driverCard'), false);
+  show($('resultCard'), false);
+  if (!year) { setError($('yearError'), 'กรุณาใส่ปี ค.ศ.'); return; }
+
+  show($('yearLoading'), true);
+  $('year').disabled = true;
+  try {
+    const data = await post('/api/drivers', { year });
+    currentYear = data.year;
+    $('yearLabel').textContent = data.year;
+    $('drivers').value = data.default.join(' ');
+
+    const chips = $('driverChips');
+    chips.innerHTML = '';
+    data.drivers.forEach((d, i) => {
+      const c = document.createElement('div');
+      c.className = 'chip' + (i < data.default.length ? ' top' : '');
+      c.textContent = d;
+      c.title = 'คลิกเพื่อเพิ่มลงช่องนักแข่ง';
+      c.onclick = () => {
+        const list = $('drivers').value.trim().split(/[\s,]+/).filter(Boolean);
+        if (!list.includes(d)) { list.push(d); $('drivers').value = list.join(' '); }
+      };
+      chips.appendChild(c);
+    });
+    show($('driverCard'), true);
+  } catch (err) {
+    setError($('yearError'), err.message);
+  } finally {
+    show($('yearLoading'), false);
+    $('year').disabled = false;
+  }
+});
+
+$('predictBtn').addEventListener('click', async () => {
+  setError($('predictError'), '');
+  show($('resultCard'), false);
+  const drivers = $('drivers').value.trim().split(/[\s,]+/).filter(Boolean);
+
+  show($('predictLoading'), true);
+  $('predictBtn').disabled = true;
+  try {
+    const data = await post('/api/predict', { year: currentYear, drivers });
+    $('resultYear').textContent = data.year;
+
+    const warnBox = $('warnings');
+    warnBox.innerHTML = '';
+    data.warnings.forEach(w => {
+      const div = document.createElement('div');
+      div.className = 'warn';
+      div.textContent = '⚠️ ' + w;
+      warnBox.appendChild(div);
+    });
+
+    const body = $('resultBody');
+    body.innerHTML = '';
+    data.results.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.rank}</td><td>${r.driver}</td>` +
+        `<td>${r.prob_sc.toFixed(2)}%</td><td>${r.prob_nosc.toFixed(2)}%</td>` +
+        `<td>${r.actual !== null ? 'อันดับ ' + r.actual : 'DNF / ไม่พบข้อมูล'}</td>`;
+      body.appendChild(tr);
+    });
+
+    if (data.accuracy) {
+      $('accBox').textContent =
+        `🎯 ความถูกต้องของการเรียงลำดับ (Pairwise Accuracy): ${data.accuracy.percent}% ` +
+        `(ทายถูก ${data.accuracy.concordant} คู่ จาก ${data.accuracy.total_pairs} คู่)`;
+      show($('accBox'), true);
+    } else {
+      show($('accBox'), false);
+    }
+    show($('resultCard'), true);
+  } catch (err) {
+    setError($('predictError'), err.message);
+  } finally {
+    show($('predictLoading'), false);
+    $('predictBtn').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

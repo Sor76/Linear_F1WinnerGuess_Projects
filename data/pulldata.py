@@ -13,11 +13,14 @@ OUTPUT_DIR = ROOT / 'data'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 fastf1.Cache.enable_cache(str(CACHE_DIR))
 
-LEGACY_LAST_YEAR = 2022
+LEGACY_LAST_YEAR = 2021
 LEGACY_CORNERS = 23
 REFERENCE_YEAR = 2018
 
-
+if TARGET_YEAR == 2021 or TARGET_YEAR == 2020:
+    exit()
+else:
+    pass
 def lap_length(telemetry_df, n=7):
    
     first = telemetry_df['Driver'].unique()[:n]
